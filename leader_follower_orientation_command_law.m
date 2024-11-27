@@ -43,9 +43,9 @@ si_to_uni_dyn = create_si_to_uni_dynamics('LinearVelocityGain', 0.8);
 % Single-integrator barrier certificates
 uni_barrier_cert = create_uni_barrier_certificate_with_boundary();
 % Single-integrator position controller
-leader_controller = create_si_position_controller('XVelocityGain', 0.8, 'YVelocityGain', 0.8, 'VelocityMagnitudeLimit', 0.1);
+leader_controller = create_automatic_parking_controller('ApproachAngleGain', 1.2, 'DesiredAngleGain', 3);
 
-waypoints = [-1 0.8; -1 -0.8; 1 -0.8; 1 0.8]';
+waypoints = [-0.8 0.6 -pi/2; -0.8 -0.6 0; 0.8 -0.6 pi/2; 0.8 0.6 pi]';
 close_enough = 0.03;
 
 %% Plotting Setup
@@ -68,6 +68,8 @@ for i = 1:length(waypoints)
     g(i) = plot(waypoints(1,i), waypoints(2,i),'s','MarkerSize',marker_size_goal,'LineWidth',line_width,'Color',CM(i));
     % Plot the goal identification text inside the goal location
     goal_labels{i} = text(waypoints(1,i)-0.05, waypoints(2,i), goal_caption, 'FontSize', font_size, 'FontWeight', 'bold');
+    % Plot arrow to indicate goal orientation
+    quiver(waypoints(1,i), waypoints(2,i), 0.1*cos(waypoints(3,i)), 0.1*sin(waypoints(3,i)), 'Color', CM(i), 'LineWidth', line_width);
 end
 
 % Plot graph connections
@@ -134,23 +136,23 @@ for t = 1:iterations
     
     switch state        
         case 1
-            dxi(:, 1) = leader_controller(x(1:2, 1), waypoint);
-            if(norm(x(1:2, 1) - waypoint) < close_enough)
+            dxi(:, 1) = leader_controller(x(1:3, 1), waypoint);
+            if(norm(x(1:2, 1) - waypoint(1:2)) < close_enough)
                 state = 2;
             end
         case 2
-            dxi(:, 1) = leader_controller(x(1:2, 1), waypoint);
-            if(norm(x(1:2, 1) - waypoint) < close_enough)
+            dxi(:, 1) = leader_controller(x(1:3, 1), waypoint);
+            if(norm(x(1:2, 1) - waypoint(1:2)) < close_enough)
                 state = 3;
             end
         case 3
-            dxi(:, 1) = leader_controller(x(1:2, 1), waypoint);
-            if(norm(x(1:2, 1) - waypoint) < close_enough)
+            dxi(:, 1) = leader_controller(x(1:3, 1), waypoint);
+            if(norm(x(1:2, 1) - waypoint(1:2)) < close_enough)
                 state = 4;
             end
         case 4
-            dxi(:, 1) = leader_controller(x(1:2, 1), waypoint);
-            if(norm(x(1:2, 1) - waypoint) < close_enough)
+            dxi(:, 1) = leader_controller(x(1:3, 1), waypoint);
+            if(norm(x(1:2, 1) - waypoint(1:2)) < close_enough)
                 state = 1;
             end
     end
@@ -165,7 +167,9 @@ for t = 1:iterations
     dxi(:, to_thresh) = threshold*dxi(:, to_thresh)./norms(to_thresh);
     
     %% Use barrier certificate and convert to unicycle dynamics
-    dxu = si_to_uni_dyn(dxi, x);
+    % dxu = si_to_uni_dyn(dxi, x);
+    dxu = dxi;
+    dxu(:, 2:end) = si_to_uni_dyn(dxi(:, 2:end), x(:, 2:end));
     dxu = uni_barrier_cert(dxu, x);
     
     %% Send velocities to agents
@@ -216,8 +220,8 @@ for t = 1:iterations
         robot_distance(b+1,t) = norm([x(1:2,rows(b)) - x(1:2,cols(b))],2);   
     end
     
-    if(norm(x(1:2, 1) - waypoint) < close_enough)
-        goal_distance = [goal_distance [norm(x(1:2, 1) - waypoint);toc(start_time)]];
+    if(norm(x(1:2, 1) - waypoint(1:2)) < close_enough)
+        goal_distance = [goal_distance [norm(x(1:2, 1) - waypoint(1:2));toc(start_time)]];
     end
     
     %Iterate experiment
