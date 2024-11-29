@@ -154,6 +154,22 @@ start_time = tic;
 r.step();
 %index_target = 1;
 
+%% CALCUL PRECISION
+
+% Define pairs for distance error calculation using the adjacency matrix A
+[distance_pairs_i, distance_pairs_j] = find(triu(A == 1));  % Upper triangle to avoid duplicates
+
+% Define triplets for angle error calculation (you can adjust these based on your formation)
+triplets = [1 2 3; 2 3 4; 3 4 5];  % Each row is a triplet of robot indices
+desired_angles = [pi/2; pi/2; pi/2];  % Desired angles in radians for each triplet
+
+% Initialize arrays to store errors over time
+E_distance_array = zeros(1, iterations);
+E_angle_array = zeros(1, iterations);
+
+
+
+
 % Compute initial target index based on the leader's initial position
 current_position = x(1:2, 1);  % Leader's initial position
 % Compute distances to all points in spline_curve
@@ -162,6 +178,36 @@ distances = sqrt(sum((spline_curve - current_position).^2, 1));
 [~, index_target] = min(distances);
 
 for t = 1:iterations
+    %% Compute Errors
+
+    % Compute distance error
+    E_distance = 0;
+    for k = 1:length(distance_pairs_i)
+        i = distance_pairs_i(k);
+        j = distance_pairs_j(k);
+        d_ij = norm(x(1:2, i) - x(1:2, j));
+        E_distance = E_distance + (d_ij - desired_distance)^2;
+    end
+    E_distance_array(t) = E_distance;
+
+    % Compute angle error
+    E_angle = 0;
+    for k = 1:size(triplets, 1)
+        i = triplets(k, 1);
+        j = triplets(k, 2);
+        k_idx = triplets(k, 3);
+        v1 = x(1:2, i) - x(1:2, j);
+        v2 = x(1:2, k_idx) - x(1:2, j);
+        % Ensure vectors are not zero to avoid division by zero
+        if norm(v1) > 0 && norm(v2) > 0
+            cos_theta = dot(v1, v2) / (norm(v1) * norm(v2));
+            % Clamp cos_theta to [-1, 1] to avoid numerical errors
+            cos_theta = max(min(cos_theta, 1), -1);
+            theta = acos(cos_theta);
+            E_angle = E_angle + (theta - desired_angles(k))^2;
+        end
+    end
+    E_angle_array(t) = E_angle;
     
     % Retrieve the most recent poses from the Robotarium.  The time delay is
     % approximately 0.033 seconds
@@ -332,7 +378,23 @@ font_size = cursize(4) * font_ratio;
 
 end
 
+% Save the error data
+save('DistanceErrorData.mat', 'E_distance_array');
+save('AngleErrorData.mat', 'E_angle_array');
 
+% Optionally, plot the errors over time
+figure;
+subplot(2,1,1);
+plot(1:iterations, E_distance_array, 'LineWidth', 2);
+xlabel('Iteration');
+ylabel('Distance Error');
+title('Distance Error over Time');
+
+subplot(2,1,2);
+plot(1:iterations, E_angle_array, 'LineWidth', 2);
+xlabel('Iteration');
+ylabel('Angle Error');
+title('Angle Error over Time');
 function B = computeBezier(P, t)
     n = size(P, 2) - 1;
     B = zeros(2, length(t));
