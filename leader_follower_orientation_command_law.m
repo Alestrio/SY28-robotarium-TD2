@@ -13,18 +13,31 @@ iterations = 5000;
 
 %% Set up the Robotarium object
 
-N = 4;
+N = 5;
 initial_positions = generate_initial_conditions(N, 'Width', 1, 'Height', 1, 'Spacing', 0.3);
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true, 'InitialConditions', initial_positions);
 
 %% Create the desired Laplacian
+% Graph laplacian
+% followers = -completeGL(N-1);
+% L = zeros(N, N);
+% L(2:N, 2:N) = followers;
+% L(2, 2) = L(2, 2) + 1;
 
-%Graph laplacian
-followers = -completeGL(N-1);
-L = zeros(N, N);
-L(2:N, 2:N) = followers;
-L(2, 2) = L(2, 2) + 1;
+A = [0 1 0 0 0;
+     1 0 1 0 1;
+     0 1 0 1 0;
+     0 0 1 0 1;
+     0 1 0 1 0];
+D = [1 0 0 0 0;
+     0 3 0 0 0;
+     0 0 2 0 0;
+     0 0 0 2 0;
+     0 0 0 0 2];
+L = D - A;
+followers = -L(2:N, 2:N);
 L(2, 1) = -1;
+
 
 %Initialize velocity vector
 dxi = zeros(2, N);
