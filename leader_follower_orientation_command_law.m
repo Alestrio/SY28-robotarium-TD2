@@ -90,12 +90,17 @@ end
 x=r.get_poses();
 
 % Follower connections to each other
-[rows, cols] = find(L == 1);
+[rows, cols] = find(A == 1);
 
-%Only considering half due to symmetric nature
-for k = 1:length(rows)/2+1
-   lf(k) = line([x(1,rows(k)), x(1,cols(k))],[x(2,rows(k)), x(2,cols(k))], 'LineWidth', line_width, 'Color', 'b'); 
+% Only considering half due to symmetric nature
+for k = 1:length(rows)
+    if rows(k) > cols(k)-1 % Éviter de tracer les doublons
+        lf(k) = line([x(1,rows(k)), x(1,cols(k))], ...
+                     [x(2,rows(k)), x(2,cols(k))], ...
+                     'LineWidth', line_width, 'Color', 'b');
+    end
 end
+
 
 % Leader connection assuming only connection between first and second
 % robot.
@@ -198,7 +203,11 @@ for t = 1:iterations
     end
     
     %Update position of graph connection lines
-    for m = 1:length(rows)/2+1
+    for m = 1:size(lf, 2)
+        % If not a graphics
+        if ~isgraphics(lf(m))
+            continue;
+        end
         lf(m).XData = [x(1,rows(m)), x(1,cols(m))];
         lf(m).YData = [x(2,rows(m)), x(2,cols(m))];
     end
