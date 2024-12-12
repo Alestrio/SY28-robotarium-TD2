@@ -77,7 +77,7 @@ B = computeBezier(waypoints, t_bz);
 %plot(B(1, :), B(2, :), 'm--', 'LineWidth', 2);
 %legend('Waypoints', 'Graph Connections', 'Bézier Curve');
 
-% une spline !
+% une spline ! (comme la courbe mais qui passe par tous les points)
 waypoints = [waypoints, waypoints(:, 1)]; %boucle
 t_points = 1:size(waypoints, 2); % Points de contrôle originaux (waypoints)
 t_spline = linspace(1, size(waypoints, 2), 1000); % Points pour échantillonner la spline
@@ -87,7 +87,7 @@ spline_curve = spline(t_points, waypoints, t_spline); % Calcul de la courbe spli
 plot(spline_curve(1, :), spline_curve(2, :), 'm--', 'LineWidth', 2);
 legend('Waypoints', 'Graph Connections', 'Spline Curve');
 
-
+%offset (assez réduit ici)
 close_enough = 0.1;
 
 %% Plotting Setup
@@ -159,16 +159,11 @@ r.step();
 % Define pairs for distance error calculation using the adjacency matrix A
 [distance_pairs_i, distance_pairs_j] = find(triu(A == 1));  % Upper triangle to avoid duplicates
 
-% Define triplets for angle error calculation (you can adjust these based on your formation)
-triplets = [1 2 3; 2 3 4; 3 4 5];  % Each row is a triplet of robot indices
-desired_angles = [pi/2; pi/2; pi/2];  % Desired angles in radians for each triplet
-
 % Initialize arrays to store errors over time
 E_distance_array = zeros(1, iterations);
-E_angle_array = zeros(1, iterations);
 
 
-
+%% Compute nearest point on the curve for the leader
 
 % Compute initial target index based on the leader's initial position
 current_position = x(1:2, 1);  % Leader's initial position
@@ -177,6 +172,13 @@ distances = sqrt(sum((spline_curve - current_position).^2, 1));
 % Find the index of the closest point
 [~, index_target] = min(distances);
 
+on_spline = false; %flag to know if leader is on spline or not
+
+% curve derivative (tangeante fo
+dx_dt = diff(spline_curve(1, :)) ./ diff(t_spline);
+dy_dt = diff(spline_curve(2, :)) ./ diff(t_spline);
+
+%% main loop
 for t = 1:iterations
     %% Compute Errors
 
@@ -189,25 +191,6 @@ for t = 1:iterations
         E_distance = E_distance + (d_ij - desired_distance)^2;
     end
     E_distance_array(t) = E_distance;
-
-    % Compute angle error
-    E_angle = 0;
-    for k = 1:size(triplets, 1)
-        i = triplets(k, 1);
-        j = triplets(k, 2);
-        k_idx = triplets(k, 3);
-        v1 = x(1:2, i) - x(1:2, j);
-        v2 = x(1:2, k_idx) - x(1:2, j);
-        % Ensure vectors are not zero to avoid division by zero
-        if norm(v1) > 0 && norm(v2) > 0
-            cos_theta = dot(v1, v2) / (norm(v1) * norm(v2));
-            % Clamp cos_theta to [-1, 1] to avoid numerical errors
-            cos_theta = max(min(cos_theta, 1), -1);
-            theta = acos(cos_theta);
-            E_angle = E_angle + (theta - desired_angles(k))^2;
-        end
-    end
-    E_angle_array(t) = E_angle;
     
     % Retrieve the most recent poses from the Robotarium.  The time delay is
     % approximately 0.033 seconds
@@ -235,8 +218,30 @@ for t = 1:iterations
     % Set the target position to the current index on the spline
     target_position = spline_curve(:, index_target);
     
+    if index_target < length(t_spline)
+        dx = dx_dt(index_target);
+        dy = dy_dt(index_target);
+    else
+        % If we're at the end, use the previous point’s derivative
+        dx = dx_dt(index_target-1);
+        dy = dy_dt(index_target-1);
+    end
+
+    tangent = [dx; dy];
+    tangent_norm = norm(tangent);
+    if tangent_norm > 0
+        tangent = tangent / tangent_norm;
+    else
+        % If derivative is zero (should be rare), fallback to direct approach
+        tangent = [1; 0]; 
+    end
+
+    look_ahead_distance = 1; % Adjust this parameter for smoother or sharper turns
+    smooth_target = target_position + look_ahead_distance * tangent;
+
+
     % Move towards the target
-    dxi(:, 1) = leader_controller(current_position, target_position);
+    dxi(:, 1) = leader_controller(current_position, smooth_target);
     
     % If the leader is close to the target position, move to the next point
     if norm(current_position - target_position) < close_enough  % target offset
@@ -249,9 +254,23 @@ for t = 1:iterations
     
     % set the next discretized point on the curve as target
     target_position = spline_curve(:, index_target);
-    
-    % move towards the target
-    dxi(:, 1) = leader_controller(current_position, target_position);
+    if index_target < length(t_spline)
+        dx = dx_dt(index_target);
+        dy = dy_dt(index_target);
+    else
+        dx = dx_dt(index_target-1);
+        dy = dy_dt(index_target-1);
+    end
+
+    tangent = [dx; dy];
+    tangent_norm = norm(tangent);
+    if tangent_norm > 0
+        tangent = tangent / tangent_norm;
+    else
+        tangent = [1; 0];
+    end
+    smooth_target = target_position + look_ahead_distance * tangent;
+    dxi(:, 1) = leader_controller(current_position, smooth_target);
 
     %% Avoid actuator errors
     
@@ -261,10 +280,12 @@ for t = 1:iterations
     to_thresh = norms > threshold;
     dxi(:, to_thresh) = threshold*dxi(:, to_thresh)./norms(to_thresh);
     
+    
     %% Use barrier certificate and convert to unicycle dynamics
     dxu = si_to_uni_dyn(dxi, x);
     dxu = uni_barrier_cert(dxu, x);
-    
+    dxu = si_to_uni_dyn(dxi, x);
+    dxu = uni_barrier_cert(dxu, x);
     %% Send velocities to agents
     
     %Set velocities
@@ -380,7 +401,6 @@ end
 
 % Save the error data
 save('DistanceErrorData.mat', 'E_distance_array');
-save('AngleErrorData.mat', 'E_angle_array');
 
 % Optionally, plot the errors over time
 figure;
@@ -390,11 +410,6 @@ xlabel('Iteration');
 ylabel('Distance Error');
 title('Distance Error over Time');
 
-subplot(2,1,2);
-plot(1:iterations, E_angle_array, 'LineWidth', 2);
-xlabel('Iteration');
-ylabel('Angle Error');
-title('Angle Error over Time');
 function B = computeBezier(P, t)
     n = size(P, 2) - 1;
     B = zeros(2, length(t));
