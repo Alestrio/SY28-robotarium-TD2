@@ -6,6 +6,7 @@
 % Sean Wilson
 % 07/2019
 
+
 %% Experiment Constants
 
 %Run the simulation for a specific number of iterations
@@ -16,7 +17,6 @@ iterations = 5000;
 N = 5;
 initial_positions = generate_initial_conditions(N, 'Width', 1, 'Height', 1, 'Spacing', 0.3);
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true, 'InitialConditions', initial_positions);
-
 
 %% Create the desired Laplacian
 
@@ -74,11 +74,12 @@ waypoints = [-1 0.6; -1 -0.6; 1 -0.6; 1 0.6]';
 t_bz = linspace(0, 1, 1000);
 B = computeBezier(waypoints, t_bz);
 
+
 % Plot the Bézier curve
 %plot(B(1, :), B(2, :), 'm--', 'LineWidth', 2);
 %legend('Waypoints', 'Graph Connections', 'Bézier Curve');
 
-
+% une spline ! (comme la courbe mais qui passe par tous les points)
 waypoints = [waypoints, waypoints(:, 1)]; %boucle
 t_points = 1:size(waypoints, 2); % Points de contrôle originaux (waypoints)
 t_spline = linspace(1, size(waypoints, 2), 1000); % Points pour échantillonner la spline
@@ -88,7 +89,7 @@ spline_curve = spline(t_points, waypoints, t_spline); % Calcul de la courbe spli
 plot(spline_curve(1, :), spline_curve(2, :), 'm--', 'LineWidth', 2);
 legend('Waypoints', 'Graph Connections', 'Spline Curve');
 
-
+%offset (assez réduit ici)
 close_enough = 0.1;
 
 %% Plotting Setup
@@ -112,6 +113,20 @@ for i = 1:(size(waypoints, 2) - 1)
     % Plot the goal identification text inside the goal location
     goal_labels{i} = text(waypoints(1,i)-0.05, waypoints(2,i), goal_caption, 'FontSize', font_size, 'FontWeight', 'bold');
 end
+%% OBSTACLES
+% Définir les obstacles dans l'environnement (par exemple des cercles de rayon R)
+obstacles = [0.5, 0.5; -0.5, -0.2; 0.0, -0.8]; % Liste des positions des obstacles (x, y)
+obstacle_radius = 0.15; % Rayon de chaque obstacle
+% Tracer les obstacles sur la figure
+hold on;
+num_obstacles = size(obstacles, 1);
+for i = 1:num_obstacles
+    theta = linspace(0, 2*pi, 50); % Pour dessiner un cercle
+    x_circle = obstacle_radius * cos(theta) + obstacles(i, 1);
+    y_circle = obstacle_radius * sin(theta) + obstacles(i, 2);
+    fill(x_circle, y_circle, 'r', 'FaceAlpha', 0.3, 'EdgeColor', 'r'); % Tracé en rouge avec transparence
+end
+hold off;
 
 % Plot graph connections
 %Need location of robots
@@ -160,18 +175,21 @@ r.step();
 % Define pairs for distance error calculation using the adjacency matrix A
 [distance_pairs_i, distance_pairs_j] = find(triu(A == 1));  % Upper triangle to avoid duplicates
 
+% Initialize arrays to store errors over time
+E_distance_array = zeros(1, iterations);
 
 
-% Compute initial target index 
-ed on the leader's initial position
+%% Compute nearest point on the curve for the leader
+
+% Compute initial target index based on the leader's initial position
 current_position = x(1:2, 1);  % Leader's initial position
 % Compute distances to all points in spline_curve
 distances = sqrt(sum((spline_curve - current_position).^2, 1));
 % Find the index of the closest point
 [~, index_target] = min(distances);
 
+%% MAIN METHOD
 for t = 1:iterations
-
     %% Compute Errors
 
     % Compute distance error
@@ -183,7 +201,6 @@ for t = 1:iterations
         E_distance = E_distance + (d_ij - desired_distance)^2;
     end
     E_distance_array(t) = E_distance;
-
     
     % Retrieve the most recent poses from the Robotarium.  The time delay is
     % approximately 0.033 seconds
@@ -208,11 +225,6 @@ for t = 1:iterations
     
     current_position = x(1:2, 1);
 
-    % Set the target position to the current index on the spline
-    target_position = spline_curve(:, index_target);
-    
-    % Move towards the target
-    dxi(:, 1) = leader_controller(current_position, target_position);
     
     % If the leader is close to the target position, move to the next point
     if norm(current_position - target_position) < close_enough  % target offset
@@ -228,6 +240,23 @@ for t = 1:iterations
     
     % move towards the target
     dxi(:, 1) = leader_controller(current_position, target_position);
+
+    %% Comportement de cycle limite pour l'évitement des obstacles
+    for i = 1:N
+        for obs_idx = 1:size(obstacles, 1)
+            obstacle_position = obstacles(obs_idx, :)';
+            dist_to_obstacle = norm(x(1:2, i) - obstacle_position);
+
+            if dist_to_obstacle < obstacle_radius
+                % Calculer le vecteur tangent pour un cycle limite
+                direction_to_obstacle = (x(1:2, i) - obstacle_position) / dist_to_obstacle;
+                tangent_direction = [-direction_to_obstacle(2); direction_to_obstacle(1)]; % Rotation de 90° pour obtenir la tangente
+                
+                % Ajouter la composante de cycle limite
+                dxi(:, i) = omega * tangent_direction + 0.5 * direction_to_obstacle;
+            end
+        end
+    end
 
     %% Avoid actuator errors
     
@@ -299,7 +328,6 @@ for t = 1:iterations
     
     %Iterate experiment
     r.step();
-
 end
 
 % Save the data
@@ -358,12 +386,13 @@ end
 % Save the error data
 save('DistanceErrorData.mat', 'E_distance_array');
 
+% Optionally, plot the errors over time
+figure;
 subplot(2,1,1);
 plot(1:iterations, E_distance_array, 'LineWidth', 2);
 xlabel('Iteration');
 ylabel('Distance Error');
 title('Distance Error over Time');
-
 
 function B = computeBezier(P, t)
     n = size(P, 2) - 1;
