@@ -17,6 +17,7 @@ N = 5;
 initial_positions = generate_initial_conditions(N, 'Width', 1, 'Height', 1, 'Spacing', 0.3);
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true, 'InitialConditions', initial_positions);
 
+
 %% Create the desired Laplacian
 
 A = [0 1 0 0 0;
@@ -77,7 +78,7 @@ B = computeBezier(waypoints, t_bz);
 %plot(B(1, :), B(2, :), 'm--', 'LineWidth', 2);
 %legend('Waypoints', 'Graph Connections', 'Bézier Curve');
 
-% une spline ! (comme la courbe mais qui passe par tous les points)
+
 waypoints = [waypoints, waypoints(:, 1)]; %boucle
 t_points = 1:size(waypoints, 2); % Points de contrôle originaux (waypoints)
 t_spline = linspace(1, size(waypoints, 2), 1000); % Points pour échantillonner la spline
@@ -87,7 +88,7 @@ spline_curve = spline(t_points, waypoints, t_spline); % Calcul de la courbe spli
 plot(spline_curve(1, :), spline_curve(2, :), 'm--', 'LineWidth', 2);
 legend('Waypoints', 'Graph Connections', 'Spline Curve');
 
-%offset (assez réduit ici)
+
 close_enough = 0.1;
 
 %% Plotting Setup
@@ -159,13 +160,10 @@ r.step();
 % Define pairs for distance error calculation using the adjacency matrix A
 [distance_pairs_i, distance_pairs_j] = find(triu(A == 1));  % Upper triangle to avoid duplicates
 
-% Initialize arrays to store errors over time
-E_distance_array = zeros(1, iterations);
 
 
-%% Compute nearest point on the curve for the leader
-
-% Compute initial target index based on the leader's initial position
+% Compute initial target index 
+ed on the leader's initial position
 current_position = x(1:2, 1);  % Leader's initial position
 % Compute distances to all points in spline_curve
 distances = sqrt(sum((spline_curve - current_position).^2, 1));
@@ -173,6 +171,7 @@ distances = sqrt(sum((spline_curve - current_position).^2, 1));
 [~, index_target] = min(distances);
 
 for t = 1:iterations
+
     %% Compute Errors
 
     % Compute distance error
@@ -184,6 +183,7 @@ for t = 1:iterations
         E_distance = E_distance + (d_ij - desired_distance)^2;
     end
     E_distance_array(t) = E_distance;
+
     
     % Retrieve the most recent poses from the Robotarium.  The time delay is
     % approximately 0.033 seconds
@@ -299,6 +299,7 @@ for t = 1:iterations
     
     %Iterate experiment
     r.step();
+
 end
 
 % Save the data
@@ -357,13 +358,12 @@ end
 % Save the error data
 save('DistanceErrorData.mat', 'E_distance_array');
 
-% Optionally, plot the errors over time
-figure;
 subplot(2,1,1);
 plot(1:iterations, E_distance_array, 'LineWidth', 2);
 xlabel('Iteration');
 ylabel('Distance Error');
 title('Distance Error over Time');
+
 
 function B = computeBezier(P, t)
     n = size(P, 2) - 1;

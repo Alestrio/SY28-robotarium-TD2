@@ -13,18 +13,31 @@ iterations = 5000;
 
 %% Set up the Robotarium object
 
-N = 4;
+N = 5;
 initial_positions = generate_initial_conditions(N, 'Width', 1, 'Height', 1, 'Spacing', 0.3);
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true, 'InitialConditions', initial_positions);
 
 %% Create the desired Laplacian
+% Graph laplacian
+% followers = -completeGL(N-1);
+% L = zeros(N, N);
+% L(2:N, 2:N) = followers;
+% L(2, 2) = L(2, 2) + 1;
 
-%Graph laplacian
-followers = -completeGL(N-1);
-L = zeros(N, N);
-L(2:N, 2:N) = followers;
-L(2, 2) = L(2, 2) + 1;
+A = [0 1 0 0 0;
+     1 0 1 0 1;
+     0 1 0 1 0;
+     0 0 1 0 1;
+     0 1 0 1 0];
+D = [1 0 0 0 0;
+     0 3 0 0 0;
+     0 0 2 0 0;
+     0 0 0 2 0;
+     0 0 0 0 2];
+L = D - A;
+followers = -L(2:N, 2:N);
 L(2, 1) = -1;
+
 
 %Initialize velocity vector
 dxi = zeros(2, N);
@@ -77,12 +90,17 @@ end
 x=r.get_poses();
 
 % Follower connections to each other
-[rows, cols] = find(L == 1);
+[rows, cols] = find(A == 1);
 
-%Only considering half due to symmetric nature
-for k = 1:length(rows)/2+1
-   lf(k) = line([x(1,rows(k)), x(1,cols(k))],[x(2,rows(k)), x(2,cols(k))], 'LineWidth', line_width, 'Color', 'b'); 
+% Only considering half due to symmetric nature
+for k = 1:length(rows)
+    if rows(k) > cols(k)-1 % Éviter de tracer les doublons
+        lf(k) = line([x(1,rows(k)), x(1,cols(k))], ...
+                     [x(2,rows(k)), x(2,cols(k))], ...
+                     'LineWidth', line_width, 'Color', 'b');
+    end
 end
+
 
 % Leader connection assuming only connection between first and second
 % robot.
@@ -185,7 +203,11 @@ for t = 1:iterations
     end
     
     %Update position of graph connection lines
-    for m = 1:length(rows)/2+1
+    for m = 1:size(lf, 2)
+        % If not a graphics
+        if ~isgraphics(lf(m))
+            continue;
+        end
         lf(m).XData = [x(1,rows(m)), x(1,cols(m))];
         lf(m).YData = [x(2,rows(m)), x(2,cols(m))];
     end
