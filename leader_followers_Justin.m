@@ -299,6 +299,9 @@ for t = 1:iterations
     
     %Iterate experiment
     r.step();
+    %hide legend
+    legend('off');
+    [Attenuations, BERs, ReceivedPowers] = net_utils.networkStep(x, 0);
 
 end
 
