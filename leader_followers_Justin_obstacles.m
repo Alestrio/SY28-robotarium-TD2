@@ -187,6 +187,7 @@ current_position = x(1:2, 1);  % Leader's initial position
 distances = sqrt(sum((spline_curve - current_position).^2, 1));
 % Find the index of the closest point
 [~, index_target] = min(distances);
+target_position = spline_curve(:, index_target);
 
 %% MAIN METHOD
 for t = 1:iterations
@@ -253,7 +254,7 @@ for t = 1:iterations
                 tangent_direction = [-direction_to_obstacle(2); direction_to_obstacle(1)]; % Rotation de 90° pour obtenir la tangente
                 
                 % Ajouter la composante de cycle limite
-                dxi(:, i) = omega * tangent_direction + 0.5 * direction_to_obstacle;
+                dxi(:, i) = tangent_direction + 0.5 * direction_to_obstacle;
             end
         end
     end

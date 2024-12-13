@@ -1,3 +1,6 @@
+clear all
+close all
+
 % Same script as leader_follower_with_plotting.m but with additional data saving. Two
 % data sets will be saved, one saving the distance between connected robots
 % through time, and another with the distance between the leader and goal
@@ -174,9 +177,11 @@ distances = sqrt(sum((spline_curve - current_position).^2, 1));
 
 on_spline = false; %flag to know if leader is on spline or not
 
-% curve derivative (tangeante fo
+% curve derivative 
 dx_dt = diff(spline_curve(1, :)) ./ diff(t_spline);
 dy_dt = diff(spline_curve(2, :)) ./ diff(t_spline);
+
+
 
 %% main loop
 for t = 1:iterations
