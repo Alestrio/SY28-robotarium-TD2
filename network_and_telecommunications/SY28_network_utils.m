@@ -2,7 +2,7 @@ classdef SY28_network_utils
     properties
         street_width = 20; % meters
         frequency = 1710; % MHz
-        building_height = 20; % meters
+        building_height = 10; % meters
         rx_height = 2; % meters
         tx_height = 2; % meters
         antenna_tx_height = 10; % meters
@@ -76,7 +76,10 @@ classdef SY28_network_utils
                     % Compute distance and check LoS
                     distance = obj.computeDistance(agent_i, agent_j);
                     hasLoS = obj.checkLoS(agent_i, agent_j, environment);
-                    
+                    if i == 1 && j == numAgents
+                        distance % Distance of leader to antenna
+                    end
+
                     % Calculate path loss
                     if hasLoS
                         Attenuations(i, j) = PropagationModel.WalfishIkegami_LOS(distance, obj.frequency);
