@@ -4,12 +4,17 @@
 % CALL IT IN YOUR SCRIPTS.  All of these utilities will be automatically
 % included in your experiment!
 
+clear all;
+
 path = genpath('utilities');
 if(isempty(path))
     disp('WARNING: Cannot find utilities directory.  This script should be run from the base directory.')
 else
     addpath(path)
 end
+
+path = genpath('network_and_telecommunications');
+addpath(path);
 
 path = genpath('patch_generation');
 if(isempty(path))
