@@ -5,6 +5,7 @@ classdef SY28_network_utils
         building_height = 20; % meters
         rx_height = 2; % meters
         tx_height = 2; % meters
+        antenna_tx_height = 10; % meters
         angle = 0; % degrees
         in_between_building_distance = 10; % meters
         emission_power_dbm = -15; % Transmission power in dBm
@@ -79,6 +80,11 @@ classdef SY28_network_utils
                     % Calculate path loss
                     if hasLoS
                         Attenuations(i, j) = PropagationModel.WalfishIkegami_LOS(distance, obj.frequency);
+                    elseif (i == numAgents || j == numAgents) % Antenna
+                        Attenuations(i, j) = PropagationModel.WalfishIkegami_NLOS(...
+                            obj.street_width, obj.frequency, obj.building_height, ...
+                            obj.rx_height, obj.angle, obj.antenna_tx_height, distance, ...
+                            obj.in_between_building_distance);
                     else
                         Attenuations(i, j) = PropagationModel.WalfishIkegami_NLOS(...
                             obj.street_width, obj.frequency, obj.building_height, ...
