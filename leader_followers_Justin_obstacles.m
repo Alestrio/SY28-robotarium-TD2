@@ -6,6 +6,8 @@
 % Sean Wilson
 % 07/2019
 
+close all;
+
 
 %% Experiment Constants
 
@@ -17,20 +19,25 @@ iterations = 5000;
 N = 5;
 initial_positions = generate_initial_conditions(N, 'Width', 1, 'Height', 1, 'Spacing', 0.3);
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true, 'InitialConditions', initial_positions);
+net_utils = SY28_network_utils();
+% Définir les obstacles dans l'environnement (par exemple des cercles de rayon R)
+obstacles = [0.5, 0.5; -0.5, -0.2; 0.0, -0.8]; % Liste des positions des obstacles (x, y)
+antenna = [0.6, 0.65]; % Position de l'antenne
+fig = r.figure_handle;
 
 %% Create the desired Laplacian
 
 A = [0 1 0 0 0;
-     1 0 1 1 0;
-     0 1 0 1 1;
-     0 1 1 0 1;
-     0 0 1 1 2];
+1 0 1 1 0;
+0 1 0 1 1;
+0 1 1 0 1;
+0 0 1 1 2];
 
 D = [0 0 0 0 0;
-     0 3 0 0 0
-     0 0 3 0 0;
-     0 0 0 3 0;
-     0 0 0 0 2];
+0 3 0 0 0
+0 0 3 0 0;
+0 0 0 3 0;
+0 0 0 0 2];
 
 L = D - A;
 
@@ -74,7 +81,7 @@ waypoints = [-1 0.6; -1 -0.6; 1 -0.6; 1 0.6]';
 t_bz = linspace(0, 1, 1000);
 B = computeBezier(waypoints, t_bz);
 
-
+figure(fig);
 % Plot the Bézier curve
 %plot(B(1, :), B(2, :), 'm--', 'LineWidth', 2);
 %legend('Waypoints', 'Graph Connections', 'Bézier Curve');
@@ -114,8 +121,6 @@ for i = 1:(size(waypoints, 2) - 1)
     goal_labels{i} = text(waypoints(1,i)-0.05, waypoints(2,i), goal_caption, 'FontSize', font_size, 'FontWeight', 'bold');
 end
 %% OBSTACLES
-% Définir les obstacles dans l'environnement (par exemple des cercles de rayon R)
-obstacles = [0.5, 0.5; -0.5, -0.2; 0.0, -0.8]; % Liste des positions des obstacles (x, y)
 obstacle_radius = 0.15; % Rayon de chaque obstacle
 % Tracer les obstacles sur la figure
 hold on;
@@ -126,6 +131,8 @@ for i = 1:num_obstacles
     y_circle = obstacle_radius * sin(theta) + obstacles(i, 2);
     fill(x_circle, y_circle, 'r', 'FaceAlpha', 0.3, 'EdgeColor', 'r'); % Tracé en rouge avec transparence
 end
+% plot the antenna
+plot(antenna(1), antenna(2), 'kx', 'MarkerSize', 10, 'LineWidth', 2);
 hold off;
 
 % Plot graph connections
@@ -191,6 +198,9 @@ target_position = spline_curve(:, index_target);
 
 %% MAIN METHOD
 for t = 1:iterations
+    figure(fig);
+    % disable legend
+    legend('off');
     %% Compute Errors
 
     % Compute distance error
@@ -329,6 +339,8 @@ for t = 1:iterations
     
     %Iterate experiment
     r.step();
+    [Attenuations, BERs, ReceivedPowers] = net_utils.networkStep([x , [antenna(1) ; antenna(2) ; 0]], obstacles);
+
 end
 
 % Save the data
@@ -341,7 +353,6 @@ save('GoalData.mat', 'goal_distance');
 r.debug();
 
 %% Helper Functions
-
 % Marker Size Helper Function to scale size with figure window
 % Input: robotarium instance, desired size of the marker in meters
 function marker_size = determine_marker_size(robotarium_instance, marker_size_meters)
