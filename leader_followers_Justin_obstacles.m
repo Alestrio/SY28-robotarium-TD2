@@ -63,7 +63,7 @@ state = 1;
 
 % These are gains for our formation control algorithm
 formation_control_gain = 10;
-desired_distance = 0.4;
+desired_distance = 0.1;
 
 %% Grab tools we need to convert from single-integrator to unicycle dynamics
 
@@ -196,9 +196,58 @@ distances = sqrt(sum((spline_curve - current_position).^2, 1));
 [~, index_target] = min(distances);
 target_position = spline_curve(:, index_target);
 
+in_line_formation = false;
 %% MAIN METHOD
 for t = 1:iterations
+    
+    %% Formation changes
+    
+    line_threshold     = 0.1; 
+    diamond_threshold  = 0.15;
 
+    
+
+    min_dist = inf; %reset
+
+    % calculate min_dist.
+    for i = 1:N
+        robot_pos = x(1:2, i);  % define robot_pos!
+        for obs_idx = 1:num_obstacles
+            obstacle_pos = obstacles(obs_idx, :)';  % define obstacle_pos!
+            dist_to_obstacle = norm(robot_pos - obstacle_pos);
+    
+            if dist_to_obstacle < min_dist
+                min_dist = dist_to_obstacle; 
+            end
+        end
+    end
+    
+    if min_dist < line_threshold
+        in_line_formation = true;
+    end
+    
+    % hysteris snippet
+    if in_line_formation
+        % If we are currently in line formation,
+        % revert to diamond if we are safely away:
+        if min_dist > diamond_threshold
+            in_line_formation = false;
+            L = L_diamond;
+        else
+            L = L_line;   % remain in line
+        end
+    else
+        % If currently in diamond,
+        % switch to line if too close to any obstacle:
+        if min_dist < line_threshold
+            in_line_formation = true;
+            L = L_line;
+        else
+            L = L_diamond;  % remain in diamond
+        end
+    end
+
+    
 
     %% Compute Errors
     
@@ -264,7 +313,6 @@ for t = 1:iterations
             dist_to_obstacle  = norm(robot_pos - obstacle_position);
     
             if dist_to_obstacle < obstacle_radius
-                L = L_line;
                 % ----------------------------------------------------------
                 % INSIDE the obstacle zone => big repulsion outward
                 % ----------------------------------------------------------
@@ -281,8 +329,6 @@ for t = 1:iterations
                 dxi(:, i) = dxi(:, i) ...
                             + tangent_gain * tangent_dir ...
                             + radial_gain  * direction_out;
-            else
-                L = L_diamond;
             end
         end
     end
