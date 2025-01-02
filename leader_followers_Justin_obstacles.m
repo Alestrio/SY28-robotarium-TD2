@@ -18,7 +18,7 @@ N = 5;
 initial_positions = generate_initial_conditions(N, 'Width', 1, 'Height', 1, 'Spacing', 0.3);
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true, 'InitialConditions', initial_positions);
 
-%% Create the desired Laplacian
+%% Create the matrix Laplacian
 
 A = [0 1 0 0 0;
      1 0 1 1 0;
@@ -196,16 +196,20 @@ distances = sqrt(sum((spline_curve - current_position).^2, 1));
 [~, index_target] = min(distances);
 target_position = spline_curve(:, index_target);
 
+% variable for smoother pathing
+on_spline = false; %flag to know if leader is on spline or not
+dx_dt = diff(spline_curve(1, :)) ./ diff(t_spline);
+dy_dt = diff(spline_curve(2, :)) ./ diff(t_spline);
+
+ % flag for formation changes
 in_line_formation = false;
-%% MAIN METHOD
+
+%% MAIN LOOP
 for t = 1:iterations
     
     %% Formation changes
-    
     line_threshold     = 0.1; 
     diamond_threshold  = 0.15;
-
-    
 
     min_dist = inf; %reset
 
@@ -247,8 +251,6 @@ for t = 1:iterations
         end
     end
 
-    
-
     %% Compute Errors
     
     % Compute distance error
@@ -283,7 +285,39 @@ for t = 1:iterations
     %% Make the leader travel between waypoints
     current_position = x(1:2, 1);
 
+    % Set the target position to the current index on the spline
+    target_position = spline_curve(:, index_target);
     
+    if index_target < length(t_spline)
+        dx = dx_dt(index_target);
+        dy = dy_dt(index_target);
+    else
+        % If we're at the end, use the previous point’s derivative
+        dx = dx_dt(index_target-1);
+        dy = dy_dt(index_target-1);
+    end
+
+    tangent = [dx; dy];
+    tangent_norm = norm(tangent);
+    if tangent_norm > 0
+        tangent = tangent / tangent_norm;
+    else
+        % If derivative is zero (should be rare), fallback to direct approach
+        tangent = [1; 0]; 
+    end
+
+    look_ahead_distance = 1; % Adjust this parameter for smoother or sharper turns
+    smooth_target = target_position + look_ahead_distance * tangent;
+
+
+    %% Move towards the target
+    
+    %smooth way (disabled due to a bug)
+    % dxi(:, 1) = leader_controller(current_position, smooth_target);
+
+    % harsh way (enabled)
+    dxi(:, 1) = leader_controller(current_position, target_position); 
+
     % If the leader is close to the target position, move to the next point
     if norm(current_position - target_position) < close_enough  % target offset
         if index_target < length(t_spline)
@@ -292,12 +326,7 @@ for t = 1:iterations
             index_target = 1;  % Wrap around to the start of the spline
         end
     end
-    
-    % set the next discretized point on the curve as target
-    target_position = spline_curve(:, index_target);
-    
-    % move towards the target
-    dxi(:, 1) = leader_controller(current_position, target_position);
+
 
     %% Obstacle avoidance algorithm
     repulsion_gain = 2.0;      % Strong push if too close
@@ -345,6 +374,8 @@ for t = 1:iterations
     dxi(:, to_thresh) = threshold*dxi(:, to_thresh)./norms(to_thresh);
     
     %% Use barrier certificate and convert to unicycle dynamics
+    dxu = si_to_uni_dyn(dxi, x);
+    dxu = uni_barrier_cert(dxu, x);
     dxu = si_to_uni_dyn(dxi, x);
     dxu = uni_barrier_cert(dxu, x);
     
