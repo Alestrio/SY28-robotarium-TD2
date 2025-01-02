@@ -16,7 +16,10 @@ iterations = 5000;
 N = 5;
 initial_positions = generate_initial_conditions(N, 'Width', 1, 'Height', 1, 'Spacing', 0.3);
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true, 'InitialConditions', initial_positions);
+net_utils = SY28_network_utils();
+% This class is responsible for the network side of the project. 
 
+fig = r.figure_handle;
 
 %% Create the desired Laplacian
 
@@ -78,7 +81,7 @@ B = computeBezier(waypoints, t_bz);
 %plot(B(1, :), B(2, :), 'm--', 'LineWidth', 2);
 %legend('Waypoints', 'Graph Connections', 'Bézier Curve');
 
-
+figure(fig);
 waypoints = [waypoints, waypoints(:, 1)]; %boucle
 t_points = 1:size(waypoints, 2); % Points de contrôle originaux (waypoints)
 t_spline = linspace(1, size(waypoints, 2), 1000); % Points pour échantillonner la spline
@@ -171,6 +174,7 @@ distances = sqrt(sum((spline_curve - current_position).^2, 1));
 
 for t = 1:iterations
 
+    figure(fig);
     %% Compute Errors
 
     % Compute distance error
@@ -360,6 +364,8 @@ end
 % Save the error data
 save('DistanceErrorData.mat', 'E_distance_array');
 
+% Optionally, plot the errors over time
+fig2 = figure;
 subplot(2,1,1);
 plot(1:iterations, E_distance_array, 'LineWidth', 2);
 xlabel('Iteration');
