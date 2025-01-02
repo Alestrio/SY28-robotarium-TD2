@@ -32,8 +32,15 @@ D = [0 0 0 0 0;
      0 0 0 3 0;
      0 0 0 0 2];
 
-L = D - A;
+L_diamond = D - A;
 
+L = L_diamond;
+
+L_line = [1 -1 0 0 0;
+          -1 2 -1 0 0;
+          0 -1 2 -1 0;
+          0 0 -1 2 -1;
+          0 0 0 -1 1];
 
 %Graph laplacian
 %followers = -completeGL(N-1);
@@ -79,7 +86,7 @@ B = computeBezier(waypoints, t_bz);
 %plot(B(1, :), B(2, :), 'm--', 'LineWidth', 2);
 %legend('Waypoints', 'Graph Connections', 'Bézier Curve');
 
-% une spline ! (comme la courbe mais qui passe par tous les points)
+% une spline  (comme la courbe mais qui passe par tous les points)
 waypoints = [waypoints, waypoints(:, 1)]; %boucle
 t_points = 1:size(waypoints, 2); % Points de contrôle originaux (waypoints)
 t_spline = linspace(1, size(waypoints, 2), 1000); % Points pour échantillonner la spline
@@ -115,7 +122,7 @@ for i = 1:(size(waypoints, 2) - 1)
 end
 %% OBSTACLES
 % Définir les obstacles dans l'environnement (par exemple des cercles de rayon R)
-obstacles = [0.5, 0.5; -0.5, -0.2; 0.0, -0.8]; % Liste des positions des obstacles (x, y)
+obstacles = [0.5, 0.5; -0.5, -0.2; 0.0, -0.7]; % Liste des positions des obstacles (x, y)
 obstacle_radius = 0.15; % Rayon de chaque obstacle
 % Tracer les obstacles sur la figure
 hold on;
@@ -191,8 +198,10 @@ target_position = spline_curve(:, index_target);
 
 %% MAIN METHOD
 for t = 1:iterations
-    %% Compute Errors
 
+
+    %% Compute Errors
+    
     % Compute distance error
     E_distance = 0;
     for k = 1:length(distance_pairs_i)
@@ -207,7 +216,7 @@ for t = 1:iterations
     % approximately 0.033 seconds
     x = r.get_poses();
     
-    %% Algorithm
+    %% Path following algorithm
     
     for i = 2:N
         
@@ -223,7 +232,6 @@ for t = 1:iterations
     end
     
     %% Make the leader travel between waypoints
-    
     current_position = x(1:2, 1);
 
     
@@ -242,22 +250,45 @@ for t = 1:iterations
     % move towards the target
     dxi(:, 1) = leader_controller(current_position, target_position);
 
-    %% Comportement de cycle limite pour l'évitement des obstacles
+    %% Obstacle avoidance algorithm
+    repulsion_gain = 2.0;      % Strong push if too close
+    tangent_gain   = 0.5;      % Weaker push when we're just in the "avoid" zone
+    radial_gain    = 0.2;      % Slight outward push in tangent zone
+    critical_dist  = obstacle_radius + 0.01;  % Start avoiding sooner
+    
     for i = 1:N
+        robot_pos = x(1:2, i); 
         for obs_idx = 1:size(obstacles, 1)
+    
             obstacle_position = obstacles(obs_idx, :)';
-            dist_to_obstacle = norm(x(1:2, i) - obstacle_position);
-
+            dist_to_obstacle  = norm(robot_pos - obstacle_position);
+    
             if dist_to_obstacle < obstacle_radius
-                % Calculer le vecteur tangent pour un cycle limite
-                direction_to_obstacle = (x(1:2, i) - obstacle_position) / dist_to_obstacle;
-                tangent_direction = [-direction_to_obstacle(2); direction_to_obstacle(1)]; % Rotation de 90° pour obtenir la tangente
-                
-                % Ajouter la composante de cycle limite
-                dxi(:, i) = tangent_direction + 0.5 * direction_to_obstacle;
+                L = L_line;
+                % ----------------------------------------------------------
+                % INSIDE the obstacle zone => big repulsion outward
+                % ----------------------------------------------------------
+                direction_out = (robot_pos - obstacle_position) / dist_to_obstacle;
+                dxi(:, i) = dxi(:, i) + repulsion_gain * direction_out;
+    
+            elseif dist_to_obstacle < critical_dist
+                % ----------------------------------------------------------
+                % TANGENT avoidance zone => gently steer around
+                % ----------------------------------------------------------
+                direction_out = (robot_pos - obstacle_position) / dist_to_obstacle;
+                tangent_dir   = [-direction_out(2); direction_out(1)];
+    
+                dxi(:, i) = dxi(:, i) ...
+                            + tangent_gain * tangent_dir ...
+                            + radial_gain  * direction_out;
+            else
+                L = L_diamond;
             end
         end
     end
+
+
+
 
     %% Avoid actuator errors
     
@@ -272,8 +303,6 @@ for t = 1:iterations
     dxu = uni_barrier_cert(dxu, x);
     
     %% Send velocities to agents
-    
-    %Set velocities
     r.set_velocities(1:N, dxu);
     
     %% Update Plot Handles
