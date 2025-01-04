@@ -6,6 +6,8 @@
 % Sean Wilson
 % 07/2019
 
+close all;
+
 %% Experiment Constants
 
 %Run the simulation for a specific number of iterations

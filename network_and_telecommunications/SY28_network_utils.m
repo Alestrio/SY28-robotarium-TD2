@@ -2,13 +2,15 @@ classdef SY28_network_utils
     properties
         street_width = 20; % meters
         frequency = 1710; % MHz
-        building_height = 20; % meters
+        building_height = 10; % meters
         rx_height = 2; % meters
         tx_height = 2; % meters
+        antenna_tx_height = 10; % meters
         angle = 0; % degrees
         in_between_building_distance = 10; % meters
         emission_power_dbm = -15; % Transmission power in dBm
         noise_floor_dbm = -90; % Typical noise floor
+        antenna_drawn = true;
         % Figures for each metric
         fig_attenuation
         fig_power
@@ -16,7 +18,7 @@ classdef SY28_network_utils
     end
     
     methods
-        function obj = SY28_network_utils(street_width, frequency, building_height, rx_height, tx_height, angle, in_between_building_distance)
+        function obj = SY28_network_utils(street_width, frequency, building_height, rx_height, tx_height, angle, in_between_building_distance, antenna_drawn)
             if nargin > 0
                 obj.street_width = street_width;
                 obj.frequency = frequency;
@@ -25,6 +27,7 @@ classdef SY28_network_utils
                 obj.tx_height = tx_height;
                 obj.angle = angle;
                 obj.in_between_building_distance = in_between_building_distance;
+                obj.antenna_drawn = antenna_drawn;
             end
             
             % Create separate figures for each metric
@@ -42,6 +45,7 @@ classdef SY28_network_utils
             xlabel('Time');
             ylabel('BER');
             title('Bit Error Rates between agents');
+            obj.antenna_drawn = true;
         end
         
         function [Attenuations, ReceivedPowers, BERs] = networkStep(obj, agents, environment)
@@ -72,10 +76,18 @@ classdef SY28_network_utils
                     % Compute distance and check LoS
                     distance = obj.computeDistance(agent_i, agent_j);
                     hasLoS = obj.checkLoS(agent_i, agent_j, environment);
-                    
+                    if i == 1 && j == numAgents
+                        distance % Distance of leader to antenna
+                    end
+
                     % Calculate path loss
                     if hasLoS
                         Attenuations(i, j) = PropagationModel.WalfishIkegami_LOS(distance, obj.frequency);
+                    elseif (i == numAgents || j == numAgents) % Antenna
+                        Attenuations(i, j) = PropagationModel.WalfishIkegami_NLOS(...
+                            obj.street_width, obj.frequency, obj.building_height, ...
+                            obj.rx_height, obj.angle, obj.antenna_tx_height, distance, ...
+                            obj.in_between_building_distance);
                     else
                         Attenuations(i, j) = PropagationModel.WalfishIkegami_NLOS(...
                             obj.street_width, obj.frequency, obj.building_height, ...
@@ -147,7 +159,11 @@ classdef SY28_network_utils
                 for i = 1:numAgents
                     for j = i+1:numAgents
                         if ~isempty(powerBuffer{i, j})
-                            name = sprintf('Agent %d to Agent %d', i, j);
+                            if obj.antenna_drawn && (i == numAgents || j == numAgents)
+                                name = sprintf('Agent %d to Antenna', min(i, j));
+                            else
+                                name = sprintf('Agent %d to Agent %d', i, j);
+                            end
                             plot(timeBuffer, powerBuffer{i, j}, '-', 'DisplayName', name, 'LineWidth', 2);
                         end
                     end
@@ -165,8 +181,12 @@ classdef SY28_network_utils
                 cla;
                 for i = 1:numAgents
                     for j = i+1:numAgents
-                        if ~isempty(berBuffer{i, j})
-                            name = sprintf('Agent %d to Agent %d', i, j);
+                        if ~isempty(powerBuffer{i, j})
+                            if obj.antenna_drawn && (i == numAgents || j == numAgents)
+                                name = sprintf('Agent %d to Antenna', min(i, j));
+                            else
+                                name = sprintf('Agent %d to Agent %d', i, j);
+                            end
                             plot(timeBuffer, berBuffer{i, j}, '-', 'DisplayName', name, 'LineWidth', 2);
                         end
                     end
@@ -185,7 +205,72 @@ classdef SY28_network_utils
         end
         
         function LoS = checkLoS(~, agent1, agent2, obstacles)
-            LoS = true; % Placeholder implementation
+            % Check if there is a clear line of sight between two agents considering obstacles
+            %
+            % Inputs:
+            %   agent1: struct with fields x, y representing the first agent's position
+            %   agent2: struct with fields x, y representing the second agent's position
+            %   obstacles: Nx2 array where each row represents [x, y] coordinates of obstacles
+            %
+            % Output:
+            %   LoS: boolean, true if there is a clear line of sight, false otherwise
+        
+            % If no obstacles, there is always line of sight
+            if isempty(obstacles)
+                LoS = true;
+                return;
+            end
+        
+            % Get line segment endpoints
+            x1 = agent1.x;
+            y1 = agent1.y;
+            x2 = agent2.x;
+            y2 = agent2.y;
+        
+            % Consider each obstacle as having a small radius
+            obstacle_radius = 0.150; % 150cm radius for obstacles
+        
+            % Check intersection with each obstacle
+            for i = 1:size(obstacles, 1)
+                % Get obstacle position
+                obstacle_x = obstacles(i, 1);
+                obstacle_y = obstacles(i, 2);
+        
+                % Calculate the minimum distance between the line segment and the obstacle
+                % using point-to-line-segment distance formula
+        
+                % Vector from line start to end
+                line_vec = [x2 - x1; y2 - y1];
+                line_length = norm(line_vec);
+                line_unit_vec = line_vec / line_length;
+        
+                % Vector from line start to obstacle
+                point_vec = [obstacle_x - x1; obstacle_y - y1];
+        
+                % Project point_vec onto line_unit_vec
+                projection_length = dot(point_vec, line_unit_vec);
+        
+                % If projection is outside line segment, use distance to endpoint
+                if projection_length < 0
+                    min_dist = norm([obstacle_x - x1; obstacle_y - y1]);
+                elseif projection_length > line_length
+                    min_dist = norm([obstacle_x - x2; obstacle_y - y2]);
+                else
+                    % Calculate perpendicular distance
+                    projection = line_unit_vec * projection_length;
+                    perpendicular = point_vec - projection;
+                    min_dist = norm(perpendicular);
+                end
+        
+                % If minimum distance is less than obstacle radius, line of sight is blocked
+                if min_dist < obstacle_radius
+                    LoS = false;
+                    return;
+                end
+            end
+        
+            % If we've checked all obstacles and found no intersections, there is line of sight
+            LoS = true;
         end
     end
 end
