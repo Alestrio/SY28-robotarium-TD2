@@ -25,7 +25,7 @@ obstacles = [0.5, 0.5; -0.5, -0.2; 0.0, -0.8]; % Liste des positions des obstacl
 antenna = [0.6, 0.65]; % Position de l'antenne
 fig = r.figure_handle;
 
-%% Create the desired Laplacian
+%% Create the matrix Laplacian
 
 A = [0 1 0 0 0;
 1 0 1 1 0;
@@ -39,8 +39,15 @@ D = [0 0 0 0 0;
 0 0 0 3 0;
 0 0 0 0 2];
 
-L = D - A;
+L_diamond = D - A;
 
+L = L_diamond;
+
+L_line = [1 -1 0 0 0;
+          -1 2 -1 0 0;
+          0 -1 2 -1 0;
+          0 0 -1 2 -1;
+          0 0 0 -1 1];
 
 %Graph laplacian
 %followers = -completeGL(N-1);
@@ -63,7 +70,7 @@ state = 1;
 
 % These are gains for our formation control algorithm
 formation_control_gain = 10;
-desired_distance = 0.4;
+desired_distance = 0.1;
 
 %% Grab tools we need to convert from single-integrator to unicycle dynamics
 
@@ -86,7 +93,7 @@ figure(fig);
 %plot(B(1, :), B(2, :), 'm--', 'LineWidth', 2);
 %legend('Waypoints', 'Graph Connections', 'Bézier Curve');
 
-% une spline ! (comme la courbe mais qui passe par tous les points)
+% une spline  (comme la courbe mais qui passe par tous les points)
 waypoints = [waypoints, waypoints(:, 1)]; %boucle
 t_points = 1:size(waypoints, 2); % Points de contrôle originaux (waypoints)
 t_spline = linspace(1, size(waypoints, 2), 1000); % Points pour échantillonner la spline
@@ -121,6 +128,8 @@ for i = 1:(size(waypoints, 2) - 1)
     goal_labels{i} = text(waypoints(1,i)-0.05, waypoints(2,i), goal_caption, 'FontSize', font_size, 'FontWeight', 'bold');
 end
 %% OBSTACLES
+% Définir les obstacles dans l'environnement (par exemple des cercles de rayon R)
+obstacles = [0.5, 0.5; -0.5, -0.2; 0.0, -0.7]; % Liste des positions des obstacles (x, y)
 obstacle_radius = 0.15; % Rayon de chaque obstacle
 % Tracer les obstacles sur la figure
 hold on;
@@ -196,13 +205,66 @@ distances = sqrt(sum((spline_curve - current_position).^2, 1));
 [~, index_target] = min(distances);
 target_position = spline_curve(:, index_target);
 
-%% MAIN METHOD
+% variable for smoother pathing
+on_spline = false; %flag to know if leader is on spline or not
+dx_dt = diff(spline_curve(1, :)) ./ diff(t_spline);
+dy_dt = diff(spline_curve(2, :)) ./ diff(t_spline);
+
+ % flag for formation changes
+in_line_formation = false;
+
+%% MAIN LOOP
 for t = 1:iterations
     figure(fig);
     % disable legend
     legend('off');
-    %% Compute Errors
+    
+    %% Formation changes
+    line_threshold     = 0.1; 
+    diamond_threshold  = 0.15;
 
+    min_dist = inf; %reset
+
+    % calculate min_dist.
+    for i = 1:N
+        robot_pos = x(1:2, i);  % define robot_pos!
+        for obs_idx = 1:num_obstacles
+            obstacle_pos = obstacles(obs_idx, :)';  % define obstacle_pos!
+            dist_to_obstacle = norm(robot_pos - obstacle_pos);
+    
+            if dist_to_obstacle < min_dist
+                min_dist = dist_to_obstacle; 
+            end
+        end
+    end
+    
+    if min_dist < line_threshold
+        in_line_formation = true;
+    end
+    
+    % hysteris snippet
+    if in_line_formation
+        % If we are currently in line formation,
+        % revert to diamond if we are safely away:
+        if min_dist > diamond_threshold
+            in_line_formation = false;
+            L = L_diamond;
+        else
+            L = L_line;   % remain in line
+        end
+    else
+        % If currently in diamond,
+        % switch to line if too close to any obstacle:
+        if min_dist < line_threshold
+            in_line_formation = true;
+            L = L_line;
+        else
+            L = L_diamond;  % remain in diamond
+        end
+    end
+
+    %% Compute Errors
+    
     % Compute distance error
     E_distance = 0;
     for k = 1:length(distance_pairs_i)
@@ -217,7 +279,7 @@ for t = 1:iterations
     % approximately 0.033 seconds
     x = r.get_poses();
     
-    %% Algorithm
+    %% Path following algorithm
     
     for i = 2:N
         
@@ -233,10 +295,41 @@ for t = 1:iterations
     end
     
     %% Make the leader travel between waypoints
-    
     current_position = x(1:2, 1);
 
+    % Set the target position to the current index on the spline
+    target_position = spline_curve(:, index_target);
     
+    if index_target < length(t_spline)
+        dx = dx_dt(index_target);
+        dy = dy_dt(index_target);
+    else
+        % If we're at the end, use the previous point’s derivative
+        dx = dx_dt(index_target-1);
+        dy = dy_dt(index_target-1);
+    end
+
+    tangent = [dx; dy];
+    tangent_norm = norm(tangent);
+    if tangent_norm > 0
+        tangent = tangent / tangent_norm;
+    else
+        % If derivative is zero (should be rare), fallback to direct approach
+        tangent = [1; 0]; 
+    end
+
+    look_ahead_distance = 1; % Adjust this parameter for smoother or sharper turns
+    smooth_target = target_position + look_ahead_distance * tangent;
+
+
+    %% Move towards the target
+    
+    %smooth way (disabled due to a bug)
+    % dxi(:, 1) = leader_controller(current_position, smooth_target);
+
+    % harsh way (enabled)
+    dxi(:, 1) = leader_controller(current_position, target_position); 
+
     % If the leader is close to the target position, move to the next point
     if norm(current_position - target_position) < close_enough  % target offset
         if index_target < length(t_spline)
@@ -245,29 +338,44 @@ for t = 1:iterations
             index_target = 1;  % Wrap around to the start of the spline
         end
     end
-    
-    % set the next discretized point on the curve as target
-    target_position = spline_curve(:, index_target);
-    
-    % move towards the target
-    dxi(:, 1) = leader_controller(current_position, target_position);
 
-    %% Comportement de cycle limite pour l'évitement des obstacles
+
+    %% Obstacle avoidance algorithm
+    repulsion_gain = 2.0;      % Strong push if too close
+    tangent_gain   = 0.5;      % Weaker push when we're just in the "avoid" zone
+    radial_gain    = 0.2;      % Slight outward push in tangent zone
+    critical_dist  = obstacle_radius + 0.01;  % Start avoiding sooner
+    
     for i = 1:N
+        robot_pos = x(1:2, i); 
         for obs_idx = 1:size(obstacles, 1)
+    
             obstacle_position = obstacles(obs_idx, :)';
-            dist_to_obstacle = norm(x(1:2, i) - obstacle_position);
-
+            dist_to_obstacle  = norm(robot_pos - obstacle_position);
+    
             if dist_to_obstacle < obstacle_radius
-                % Calculer le vecteur tangent pour un cycle limite
-                direction_to_obstacle = (x(1:2, i) - obstacle_position) / dist_to_obstacle;
-                tangent_direction = [-direction_to_obstacle(2); direction_to_obstacle(1)]; % Rotation de 90° pour obtenir la tangente
-                
-                % Ajouter la composante de cycle limite
-                dxi(:, i) = tangent_direction + 0.5 * direction_to_obstacle;
+                % ----------------------------------------------------------
+                % INSIDE the obstacle zone => big repulsion outward
+                % ----------------------------------------------------------
+                direction_out = (robot_pos - obstacle_position) / dist_to_obstacle;
+                dxi(:, i) = dxi(:, i) + repulsion_gain * direction_out;
+    
+            elseif dist_to_obstacle < critical_dist
+                % ----------------------------------------------------------
+                % TANGENT avoidance zone => gently steer around
+                % ----------------------------------------------------------
+                direction_out = (robot_pos - obstacle_position) / dist_to_obstacle;
+                tangent_dir   = [-direction_out(2); direction_out(1)];
+    
+                dxi(:, i) = dxi(:, i) ...
+                            + tangent_gain * tangent_dir ...
+                            + radial_gain  * direction_out;
             end
         end
     end
+
+
+
 
     %% Avoid actuator errors
     
@@ -280,10 +388,10 @@ for t = 1:iterations
     %% Use barrier certificate and convert to unicycle dynamics
     dxu = si_to_uni_dyn(dxi, x);
     dxu = uni_barrier_cert(dxu, x);
+    dxu = si_to_uni_dyn(dxi, x);
+    dxu = uni_barrier_cert(dxu, x);
     
     %% Send velocities to agents
-    
-    %Set velocities
     r.set_velocities(1:N, dxu);
     
     %% Update Plot Handles
